@@ -5,20 +5,19 @@ from io import BytesIO
 import base64
 import json
 
-# --- Hugging Face Inference API (CLIP) ---
+# --- Hugging Face CLIP Model ---
 HUGGINGFACE_API_TOKEN = st.secrets["HUGGINGFACE_API_TOKEN"]
 CLIP_API_URL = "https://api-inference.huggingface.co/models/openai/clip-vit-base-patch32"
 
 headers_hf = {
-    "Authorization": f"Bearer {HUGGINGFACE_API_TOKEN}",
+    "Authorization": f"Bearer " + HUGGINGFACE_API_TOKEN,
     "Content-Type": "application/json"
 }
 
 def get_clip_score(image_bytes, prompt):
-    base64_img = base64.b64encode(image_bytes).decode("utf-8")
     payload = {
         "inputs": {
-            "image": base64_img,
+            "image": base64.b64encode(image_bytes).decode("utf-8"),
             "text": prompt
         }
     }
@@ -50,17 +49,17 @@ def get_blocks_from_channel(slug, max_blocks=20):
 # --- Streamlit UI ---
 st.set_page_config(page_title="Are.na Visual Search with CLIP", layout="wide")
 st.title("🧠 Are.na Visual Search")
-st.markdown("""
-Search Are.na for images that **visually match your keyword**, powered by [CLIP](https://openai.com/research/clip).
-""")
+st.markdown("Find images that visually match your keyword using OpenAI's CLIP model.")
 
-keyword = st.text_input("Enter a concept (e.g. 'watermelon', 'collage', 'poster')")
+keyword = st.text_input("🔍 Keyword (e.g. 'fruit', 'zine', 'poster')")
+
+threshold = st.slider("🔧 Minimum visual match score", 0.1, 0.5, 0.28, step=0.01)
 
 if st.button("Search"):
     if not keyword:
         st.warning("Please enter a keyword.")
     else:
-        st.info(f"Searching visually for: **{keyword}**")
+        st.info(f"Searching visually for: **{keyword}** (match score ≥ {threshold:.2f})")
         try:
             channels = search_arena_channels(keyword)
             cols = st.columns(5)
@@ -76,13 +75,13 @@ if st.button("Search"):
                             img_response = requests.get(img_url, headers={"User-Agent": "Mozilla/5.0"})
                             img_bytes = img_response.content
 
-                            # Get CLIP visual similarity score
                             score = get_clip_score(img_bytes, keyword)
 
-                            if score > 0.28:  # adjust threshold as needed
+                            if score >= threshold:
                                 img = Image.open(BytesIO(img_bytes))
                                 title = block.get("title", "")
-                                cols[col_idx].image(img, caption=f"{title}\nScore: {score:.2f}", use_column_width=True)
+                                caption = f"{title}\nScore: {score:.2f}" if title else f"Score: {score:.2f}"
+                                cols[col_idx].image(img, caption=caption, use_column_width=True)
                                 col_idx = (col_idx + 1) % 5
                                 match_count += 1
                         except:
