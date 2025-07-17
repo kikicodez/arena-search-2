@@ -6,8 +6,8 @@ import base64
 import json
 import time
 
-# ✅ Working CLIP model
-CLIP_API_URL = "https://api-inference.huggingface.co/models/laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
+# ✅ Final CLIP endpoint that supports inference
+CLIP_API_URL = "https://api-inference.huggingface.co/models/sentence-transformers/clip-ViT-B-32"
 HUGGINGFACE_API_TOKEN = st.secrets["HUGGINGFACE_API_TOKEN"]
 
 headers_hf = {
