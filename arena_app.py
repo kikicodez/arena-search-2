@@ -6,36 +6,34 @@ import base64
 import json
 import time
 
-# --- Hugging Face CLIP Model ---
+# ✅ USES: laion/CLIP-ViT-B-32-laion2B-s34B-b79K
+CLIP_API_URL = "https://api-inference.huggingface.co/models/laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
 HUGGINGFACE_API_TOKEN = st.secrets["HUGGINGFACE_API_TOKEN"]
-CLIP_API_URL = "https://api-inference.huggingface.co/models/openai/clip-vit-base-patch32"
 
 headers_hf = {
-    "Authorization": f"Bearer " + HUGGINGFACE_API_TOKEN,
+    "Authorization": f"Bearer {HUGGINGFACE_API_TOKEN}",
     "Content-Type": "application/json"
 }
 
-def get_clip_score(image_bytes, prompt, retries=3, delay=3):
-    base64_img = base64.b64encode(image_bytes).decode("utf-8")
+def get_clip_score(image_bytes, prompt, retries=3, delay=2):
     payload = {
         "inputs": {
-            "image": base64_img,
+            "image": base64.b64encode(image_bytes).decode("utf-8"),
             "text": prompt
         }
     }
     for attempt in range(retries):
         try:
             response = requests.post(CLIP_API_URL, headers=headers_hf, json=payload)
-            if response.status_code != 200:
+            if response.status_code == 200:
+                result = response.json()
+                if isinstance(result, list) and len(result) > 0:
+                    return result[0].get("score", 0.0)
+            else:
                 st.warning(f"CLIP error (status {response.status_code}): {response.text}")
-                time.sleep(delay)
-                continue
-            result = response.json()
-            if isinstance(result, list) and len(result) > 0:
-                return result[0]["score"]
         except Exception as e:
             st.warning(f"CLIP exception: {e}")
-            time.sleep(delay)
+        time.sleep(delay)
     return 0.0
 
 # --- Are.na API ---
@@ -53,29 +51,29 @@ def get_blocks_from_channel(slug, max_blocks=20):
     response.raise_for_status()
     return response.json()['contents'][:max_blocks]
 
-# --- Streamlit UI ---
-st.set_page_config(page_title="Are.na Visual Search with CLIP", layout="wide")
-st.title("🧠 Are.na Visual Search (w/ CLIP & Test Mode)")
+# --- UI ---
+st.set_page_config(page_title="Are.na CLIP Search", layout="wide")
+st.title("🔍 Are.na Visual Search (CLIP-powered)")
 
-keyword = st.text_input("Enter a concept (e.g. 'watermelon', 'poster', 'zine')")
-threshold = st.slider("Minimum CLIP match score", 0.1, 0.5, 0.28, step=0.01)
+keyword = st.text_input("Enter a visual concept (e.g. 'watermelon', 'poster')")
+threshold = st.slider("Minimum visual match score", 0.1, 0.5, 0.28, step=0.01)
 
-# 🔎 TEST IMAGE MODE
-with st.expander("🧪 Test CLIP with known watermelon image"):
-    if st.button("Run Test Image Match"):
+# 🧪 TEST MODE
+with st.expander("🧪 Test with known image"):
+    if st.button("Run CLIP test with watermelon photo"):
         test_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Watermelon_cross_BNC.jpg/640px-Watermelon_cross_BNC.jpg"
         img_response = requests.get(test_url)
         score = get_clip_score(img_response.content, "watermelon")
-        st.image(img_response.content, caption=f"Test Score: {score:.2f}")
+        st.image(img_response.content, caption=f"CLIP Score: {score:.2f}")
         if score < threshold:
-            st.warning("CLIP model might be sleeping or rate-limited. Try again or lower the threshold.")
+            st.warning("Model might be warming up or not matching this image. Try lowering threshold.")
 
-# 🔍 MAIN SEARCH MODE
+# 🔍 SEARCH MODE
 if st.button("Search Are.na"):
     if not keyword:
         st.warning("Please enter a keyword.")
     else:
-        st.info(f"Searching visually for: **{keyword}** (CLIP score ≥ {threshold:.2f})")
+        st.info(f"Searching Are.na for images related to **{keyword}**")
         try:
             channels = search_arena_channels(keyword)
             cols = st.columns(5)
@@ -100,11 +98,12 @@ if st.button("Search Are.na"):
                                 cols[col_idx].image(img, caption=caption, use_column_width=True)
                                 col_idx = (col_idx + 1) % 5
                                 match_count += 1
-                        except:
+                        except Exception as e:
+                            st.warning(f"Image skipped: {e}")
                             continue
 
             if match_count == 0:
-                st.warning("No visually matching images found. Try a broader term or lower threshold.")
+                st.warning("No visually matching images found. Try lowering the threshold or using a broader term.")
 
         except Exception as e:
-            st.error(f"⚠️ Error: {e}")
+            st.error(f"❌ Error: {e}")
