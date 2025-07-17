@@ -3,26 +3,26 @@ import requests
 from PIL import Image
 from io import BytesIO
 
-# --- ARE.NA API SEARCH FOR BLOCKS ---
-def search_arena_blocks(keyword, max_results=50):
-    url = f"https://api.are.na/v2/search/contents?q={keyword}"
+# --- Search Are.na Channels ---
+def search_arena_channels(keyword, max_channels=5):
+    url = f"https://api.are.na/v2/search/channels?q={keyword}"
     headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(url, headers=headers)
     response.raise_for_status()
-    data = response.json()
+    return response.json()['channels'][:max_channels]
 
-    # Filter only Image blocks
-    image_blocks = [
-        block for block in data.get("contents", [])
-        if block.get("class") == "Image" and block.get("image", {}).get("original", {}).get("url")
-    ]
-    return image_blocks[:max_results]
+# --- Get Content Blocks from a Channel ---
+def get_blocks_from_channel(slug, max_blocks=30):
+    url = f"https://api.are.na/v2/channels/{slug}/contents"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    return response.json()['contents'][:max_blocks]
 
-# --- STREAMLIT UI ---
-
+# --- Streamlit UI ---
 st.set_page_config(page_title="Are.na Visual Search", layout="wide")
 st.title("🎯 Are.na Visual Search")
-st.markdown("Type a keyword to find **images across Are.na** matching your concept. (e.g., `watermelon`, `architecture`, `texture`, `zine`)")
+st.markdown("Enter a keyword to find **images that reference it** in their title or note.")
 
 keyword = st.text_input("🔍 Search Are.na for images related to...")
 
@@ -30,26 +30,38 @@ if st.button("Search"):
     if not keyword:
         st.warning("Please enter a keyword.")
     else:
-        st.info(f"Searching Are.na for images related to **{keyword}**...")
+        st.info(f"Searching Are.na channels for: **{keyword}**")
         try:
-            image_blocks = search_arena_blocks(keyword)
-            if not image_blocks:
-                st.warning("No images found for this keyword.")
+            keyword_lower = keyword.lower()
+            matching_images = []
+            channels = search_arena_channels(keyword)
+
+            for channel in channels:
+                blocks = get_blocks_from_channel(channel['slug'])
+
+                for block in blocks:
+                    if block.get('class') == 'Image':
+                        title = block.get('title', '') or ''
+                        description = block.get('description', '') or ''
+                        if keyword_lower in title.lower() or keyword_lower in description.lower():
+                            img_url = block['image']['original']['url']
+                            matching_images.append((img_url, title))
+
+            if not matching_images:
+                st.warning("No image blocks matched your keyword inside these channels.")
             else:
                 cols = st.columns(5)
                 col_idx = 0
-                for block in image_blocks:
+                for img_url, title in matching_images:
                     try:
-                        img_url = block['image']['original']['url']
-                        title = block.get('title', '[No Title]')
                         img_response = requests.get(img_url, headers={"User-Agent": "Mozilla/5.0"})
                         if not img_response.headers.get("Content-Type", "").startswith("image/"):
                             continue
-                        img_data = img_response.content
-                        img = Image.open(BytesIO(img_data))
+                        img = Image.open(BytesIO(img_response.content))
                         cols[col_idx].image(img, caption=title, use_column_width=True)
                         col_idx = (col_idx + 1) % 5
                     except Exception:
-                        continue  # silently skip bad blocks
+                        continue
+
         except Exception as e:
             st.error(f"⚠️ Error: {e}")
