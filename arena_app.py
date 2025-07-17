@@ -6,7 +6,7 @@ import base64
 import json
 import time
 
-# ✅ USES: laion/CLIP-ViT-B-32-laion2B-s34B-b79K
+# ✅ Working CLIP model
 CLIP_API_URL = "https://api-inference.huggingface.co/models/laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
 HUGGINGFACE_API_TOKEN = st.secrets["HUGGINGFACE_API_TOKEN"]
 
@@ -54,26 +54,27 @@ def get_blocks_from_channel(slug, max_blocks=20):
 # --- UI ---
 st.set_page_config(page_title="Are.na CLIP Search", layout="wide")
 st.title("🔍 Are.na Visual Search (CLIP-powered)")
+st.markdown("Find images on Are.na that visually match your concept using CLIP.")
 
-keyword = st.text_input("Enter a visual concept (e.g. 'watermelon', 'poster')")
-threshold = st.slider("Minimum visual match score", 0.1, 0.5, 0.28, step=0.01)
+keyword = st.text_input("Enter a visual concept (e.g. 'fruit', 'poster', 'zine')")
+threshold = st.slider("Minimum CLIP match score", 0.1, 0.5, 0.28, step=0.01)
 
 # 🧪 TEST MODE
-with st.expander("🧪 Test with known image"):
-    if st.button("Run CLIP test with watermelon photo"):
+with st.expander("🧪 Test CLIP with known watermelon image"):
+    if st.button("Run test match"):
         test_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Watermelon_cross_BNC.jpg/640px-Watermelon_cross_BNC.jpg"
         img_response = requests.get(test_url)
         score = get_clip_score(img_response.content, "watermelon")
         st.image(img_response.content, caption=f"CLIP Score: {score:.2f}")
         if score < threshold:
-            st.warning("Model might be warming up or not matching this image. Try lowering threshold.")
+            st.warning("The model may be cold or slow. Try again or lower the threshold.")
 
 # 🔍 SEARCH MODE
 if st.button("Search Are.na"):
     if not keyword:
         st.warning("Please enter a keyword.")
     else:
-        st.info(f"Searching Are.na for images related to **{keyword}**")
+        st.info(f"Searching Are.na visually for: **{keyword}** (CLIP ≥ {threshold:.2f})")
         try:
             channels = search_arena_channels(keyword)
             cols = st.columns(5)
@@ -87,23 +88,32 @@ if st.button("Search Are.na"):
                         try:
                             img_url = block["image"]["original"]["url"]
                             img_response = requests.get(img_url, headers={"User-Agent": "Mozilla/5.0"})
-                            img_bytes = img_response.content
 
+                            # Skip if not a real image
+                            if not img_response.headers.get("Content-Type", "").startswith("image/"):
+                                continue
+
+                            img_bytes = img_response.content
                             score = get_clip_score(img_bytes, keyword)
 
                             if score >= threshold:
-                                img = Image.open(BytesIO(img_bytes))
-                                title = block.get("title", "")
-                                caption = f"{title}\nScore: {score:.2f}" if title else f"Score: {score:.2f}"
-                                cols[col_idx].image(img, caption=caption, use_column_width=True)
-                                col_idx = (col_idx + 1) % 5
-                                match_count += 1
+                                try:
+                                    img = Image.open(BytesIO(img_bytes))
+                                    title = block.get("title", "")
+                                    caption = f"{title}\nScore: {score:.2f}" if title else f"Score: {score:.2f}"
+                                    cols[col_idx].image(img, caption=caption, use_column_width=True)
+                                    col_idx = (col_idx + 1) % 5
+                                    match_count += 1
+                                except Exception as e:
+                                    st.warning(f"⚠️ Skipped a bad image block. Reason: {e}")
+                                    continue
+
                         except Exception as e:
-                            st.warning(f"Image skipped: {e}")
+                            st.warning(f"⚠️ Failed to fetch an image. Reason: {e}")
                             continue
 
             if match_count == 0:
-                st.warning("No visually matching images found. Try lowering the threshold or using a broader term.")
+                st.warning("No matching images found. Try a broader keyword or lower threshold.")
 
         except Exception as e:
             st.error(f"❌ Error: {e}")
