@@ -11,13 +11,15 @@ CSV_PATH = os.path.join(SAVE_DIR, "metadata.csv")
 # Utilities
 def search_arena_channels(keyword, max_channels=5):
     url = f"https://api.are.na/v2/search/channels?q={keyword}"
-    response = requests.get(url)
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(url, headers=headers)
     response.raise_for_status()
     return response.json()['channels'][:max_channels]
 
 def get_blocks_from_channel(slug, max_blocks=10):
     url = f"https://api.are.na/v2/channels/{slug}/contents"
-    response = requests.get(url)
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(url, headers=headers)
     response.raise_for_status()
     return response.json()['contents'][:max_blocks]
 
@@ -52,6 +54,8 @@ if st.button("Search and Download"):
 
         try:
             channels = search_arena_channels(keyword)
+            if not channels:
+                st.warning("No channels found.")
             for channel in channels:
                 st.subheader(f"📁 {channel['title']}")
                 blocks = get_blocks_from_channel(channel['slug'])
@@ -60,19 +64,24 @@ if st.button("Search and Download"):
 
                 for block in blocks:
                     if block['class'] == 'Image':
-                        img_url = block['image']['original']['url']
-                        title = block.get('title', '[No Title]')
-                        note = block.get('description', '[No Description]')
+                        try:
+                            img_url = block['image']['original']['url']
+                            title = block.get('title', '[No Title]')
+                            note = block.get('description', '[No Description]')
+                            img_data, img_name = save_image(img_url, title, note, metadata_rows)
+                            img = Image.open(BytesIO(img_data))
+                            cols[col_idx].image(img, caption=title, use_column_width=True)
+                            col_idx = (col_idx + 1) % 5
+                        except Exception as img_error:
+                            st.error(f"Image error: {img_error}")
 
-                        img_data, img_name = save_image(img_url, title, note, metadata_rows)
-                        img = Image.open(BytesIO(img_data))
-                        cols[col_idx].image(img, caption=title, use_column_width=True)
-                        col_idx = (col_idx + 1) % 5
-
-            save_csv(metadata_rows)
-            st.success("✅ Done! Metadata saved.")
-            with open(CSV_PATH, "rb") as f:
-                st.download_button("📄 Download Metadata CSV", f, file_name="arena_metadata.csv")
+            if metadata_rows:
+                save_csv(metadata_rows)
+                st.success("✅ Done! Metadata saved.")
+                with open(CSV_PATH, "rb") as f:
+                    st.download_button("📄 Download Metadata CSV", f, file_name="arena_metadata.csv")
+            else:
+                st.info("No images found for this keyword.")
 
         except Exception as e:
             st.error(f"⚠️ Error: {e}")
