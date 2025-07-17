@@ -4,6 +4,7 @@ from PIL import Image
 from io import BytesIO
 import base64
 import json
+import time
 
 # --- Hugging Face CLIP Model ---
 HUGGINGFACE_API_TOKEN = st.secrets["HUGGINGFACE_API_TOKEN"]
@@ -14,21 +15,27 @@ headers_hf = {
     "Content-Type": "application/json"
 }
 
-def get_clip_score(image_bytes, prompt):
+def get_clip_score(image_bytes, prompt, retries=3, delay=3):
+    base64_img = base64.b64encode(image_bytes).decode("utf-8")
     payload = {
         "inputs": {
-            "image": base64.b64encode(image_bytes).decode("utf-8"),
+            "image": base64_img,
             "text": prompt
         }
     }
-    try:
-        response = requests.post(CLIP_API_URL, headers=headers_hf, json=payload)
-        response.raise_for_status()
-        result = response.json()
-        if isinstance(result, list) and len(result) > 0:
-            return result[0]["score"]
-    except:
-        pass
+    for attempt in range(retries):
+        try:
+            response = requests.post(CLIP_API_URL, headers=headers_hf, json=payload)
+            if response.status_code != 200:
+                st.warning(f"CLIP error (status {response.status_code}): {response.text}")
+                time.sleep(delay)
+                continue
+            result = response.json()
+            if isinstance(result, list) and len(result) > 0:
+                return result[0]["score"]
+        except Exception as e:
+            st.warning(f"CLIP exception: {e}")
+            time.sleep(delay)
     return 0.0
 
 # --- Are.na API ---
@@ -48,18 +55,27 @@ def get_blocks_from_channel(slug, max_blocks=20):
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Are.na Visual Search with CLIP", layout="wide")
-st.title("🧠 Are.na Visual Search")
-st.markdown("Find images that visually match your keyword using OpenAI's CLIP model.")
+st.title("🧠 Are.na Visual Search (w/ CLIP & Test Mode)")
 
-keyword = st.text_input("🔍 Keyword (e.g. 'fruit', 'zine', 'poster')")
+keyword = st.text_input("Enter a concept (e.g. 'watermelon', 'poster', 'zine')")
+threshold = st.slider("Minimum CLIP match score", 0.1, 0.5, 0.28, step=0.01)
 
-threshold = st.slider("🔧 Minimum visual match score", 0.1, 0.5, 0.28, step=0.01)
+# 🔎 TEST IMAGE MODE
+with st.expander("🧪 Test CLIP with known watermelon image"):
+    if st.button("Run Test Image Match"):
+        test_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Watermelon_cross_BNC.jpg/640px-Watermelon_cross_BNC.jpg"
+        img_response = requests.get(test_url)
+        score = get_clip_score(img_response.content, "watermelon")
+        st.image(img_response.content, caption=f"Test Score: {score:.2f}")
+        if score < threshold:
+            st.warning("CLIP model might be sleeping or rate-limited. Try again or lower the threshold.")
 
-if st.button("Search"):
+# 🔍 MAIN SEARCH MODE
+if st.button("Search Are.na"):
     if not keyword:
         st.warning("Please enter a keyword.")
     else:
-        st.info(f"Searching visually for: **{keyword}** (match score ≥ {threshold:.2f})")
+        st.info(f"Searching visually for: **{keyword}** (CLIP score ≥ {threshold:.2f})")
         try:
             channels = search_arena_channels(keyword)
             cols = st.columns(5)
